@@ -48,6 +48,7 @@ async function run() {
   try {
     // collections
     const userCollection = client.db("DormDineDB").collection("users");
+    const mealsCollection = client.db("DormDineDB").collection("meals");
 
     // auth related api
     app.post("/jwt", async (req, res) => {
@@ -87,6 +88,13 @@ async function run() {
       const result = await userCollection.insertOne(user);
       res.send(result);
     });
+
+    // meals related api
+    app.get('/meals',async(req,res)=>{
+      const result = await mealsCollection.find().toArray();
+      res.send(result);
+    })
+
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log(
