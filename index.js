@@ -49,6 +49,8 @@ async function run() {
     // collections
     const userCollection = client.db("DormDineDB").collection("users");
     const mealsCollection = client.db("DormDineDB").collection("meals");
+    const reviewsCollection = client.db("DormDineDB").collection("reviews");
+
     const membershipCollection = client
       .db("DormDineDB")
       .collection("membership");
@@ -103,35 +105,32 @@ async function run() {
           subscription: lowercaseSubscription,
         },
       };
-      const result = await userCollection.updateOne(filter,updateDoc,options)
-      res.send(result)
+      const result = await userCollection.updateOne(filter, updateDoc, options);
+      res.send(result);
     });
     // meals related api
     app.get("/meals", async (req, res) => {
       const result = await mealsCollection.find().toArray();
       res.send(result);
     });
-    app.get("/meal-details/:id", async (req, res) => {
-        const id = req.params.id;
-        const query = { _id: new ObjectId(id) };
-        const result = await mealsCollection.findOne(query);
-        res.send(result);
-      
+    app.get("/reviews", async (req, res) => {
+      const result = await reviewsCollection.find().toArray();
+      res.send(result);
     });
-
-
-
-
+    app.get("/meal-details/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await mealsCollection.findOne(query);
+      res.send(result);
+    });
     
+
     // membership related api
     app.get("/membership", async (req, res) => {
       const result = await membershipCollection.find().toArray();
       res.send(result);
     });
     // TODO: make payments things in last
-
-
-
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
