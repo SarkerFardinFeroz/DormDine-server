@@ -5,7 +5,7 @@ const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const app = express();
 const port = process.env.PORT || 5000;
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.frd0xwu.mongodb.net/?retryWrites=true&w=majority`;
 
 console.log(uri);
@@ -49,6 +49,9 @@ async function run() {
     // collections
     const userCollection = client.db("DormDineDB").collection("users");
     const mealsCollection = client.db("DormDineDB").collection("meals");
+    const membershipCollection = client
+      .db("DormDineDB")
+      .collection("membership");
 
     // auth related api
     app.post("/jwt", async (req, res) => {
@@ -88,12 +91,47 @@ async function run() {
       const result = await userCollection.insertOne(user);
       res.send(result);
     });
-
+    app.put("/users/:id", async (req, res) => {
+      const id = req.params.id;
+      const subscription = req.body.subscription;
+      const lowercaseSubscription = subscription.toLowerCase();
+      console.log(lowercaseSubscription);
+      const filter = { _id: new ObjectId(id) };
+      const options = { upsert: true };
+      const updateDoc = {
+        $set: {
+          subscription: lowercaseSubscription,
+        },
+      };
+      const result = await userCollection.updateOne(filter,updateDoc,options)
+      res.send(result)
+    });
     // meals related api
-    app.get('/meals',async(req,res)=>{
+    app.get("/meals", async (req, res) => {
       const result = await mealsCollection.find().toArray();
       res.send(result);
-    })
+    });
+    app.get("/meal-details/:id", async (req, res) => {
+        const id = req.params.id;
+        const query = { _id: new ObjectId(id) };
+        const result = await mealsCollection.findOne(query);
+        res.send(result);
+      
+    });
+
+
+
+
+    
+    // membership related api
+    app.get("/membership", async (req, res) => {
+      const result = await membershipCollection.find().toArray();
+      res.send(result);
+    });
+    // TODO: make payments things in last
+
+
+
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
