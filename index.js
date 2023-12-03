@@ -50,6 +50,7 @@ async function run() {
     const userCollection = client.db("DormDineDB").collection("users");
     const mealsCollection = client.db("DormDineDB").collection("meals");
     const reviewsCollection = client.db("DormDineDB").collection("reviews");
+    const cartsCollection = client.db("DormDineDB").collection("carts");
 
     const membershipCollection = client
       .db("DormDineDB")
@@ -113,8 +114,47 @@ async function run() {
       const result = await mealsCollection.find().toArray();
       res.send(result);
     });
+    app.put("/like/:id", async (req, res) => {
+      const body = req.body;
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const update = {
+        $inc: { like: 1 },
+        $set: { likesBy: body.likesBy },
+      };
+      const options = { upsert: true };
+      const result = await mealsCollection.updateOne(filter, update, options);
+      res.json(result);
+    });
+    app.put("/menu/reviews/:id", async (req, res) => {
+      const id = req.params.id;
+      const updatedReview = req.body.reviews;
+      const filter = { _id: new ObjectId(id) };
+      const options = { upsert: true };
+      const updateDoc = {
+        $set: {
+          review: updatedReview,
+        },
+      };
+      const result = await mealsCollection.updateOne(
+        filter,
+        updateDoc,
+        options
+      );
+      res.send([result, { status: 200 }]);
+    });
     app.get("/reviews", async (req, res) => {
       const result = await reviewsCollection.find().toArray();
+      res.send(result);
+    });
+    app.get("/reviews/:menuId", async (req, res) => {
+      const menuId = req.params.menuId;
+      const result = await reviewsCollection.find({ menuId: menuId }).toArray();
+      res.send(result);
+    });
+    app.post("/reviews", async (req, res) => {
+      const newReview = req.body;
+      const result = await reviewsCollection.insertOne(newReview);
       res.send(result);
     });
     app.get("/meal-details/:id", async (req, res) => {
@@ -123,8 +163,8 @@ async function run() {
       const result = await mealsCollection.findOne(query);
       res.send(result);
     });
-    
-
+    // Request related meal  api
+  
     // membership related api
     app.get("/membership", async (req, res) => {
       const result = await membershipCollection.find().toArray();
