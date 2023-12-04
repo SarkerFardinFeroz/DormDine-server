@@ -131,6 +131,23 @@ async function run() {
       const result = await mealsCollection.find().toArray();
       res.send(result);
     });
+    app.put("/meals/update/:id",verifyToken,verifyAdmin, async (req, res) => {
+      const id = req.params.id;
+      const upcoming = req.body.upcoming;
+      const filter = { _id: new ObjectId(id) };
+      const options = { upsert: true };
+      const updateDoc = {
+        $set: {
+          upcoming: upcoming,
+        },
+      };
+      const result = await mealsCollection.updateOne(
+        filter,
+        updateDoc,
+        options
+      );
+      res.send(result);
+    });
     app.get("/meals/:id", async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
