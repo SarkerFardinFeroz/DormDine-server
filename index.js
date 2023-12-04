@@ -6,7 +6,7 @@ const app = express();
 const port = process.env.PORT || 5000;
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.frd0xwu.mongodb.net/?retryWrites=true&w=majority`;
-
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 // middleware
 app.use(cors());
 app.use(express.json());
@@ -19,8 +19,6 @@ const client = new MongoClient(uri, {
   },
 });
 
-
-
 async function run() {
   try {
     // collections
@@ -28,6 +26,7 @@ async function run() {
     const mealsCollection = client.db("DormDineDB").collection("meals");
     const reviewsCollection = client.db("DormDineDB").collection("reviews");
     const cartsCollection = client.db("DormDineDB").collection("carts");
+    const paymentCollection = client.db("DormDineDB").collection("payments");
 
     const membershipCollection = client
       .db("DormDineDB")
@@ -68,7 +67,7 @@ async function run() {
     });
 
     // user related api
-    app.get("/users", verifyToken, verifyAdmin, async (req, res) => {
+    app.get("/users", async (req, res) => {
       const result = await userCollection.find().toArray();
       res.send(result);
     });
@@ -98,7 +97,7 @@ async function run() {
       const result = await userCollection.insertOne(user);
       res.send(result);
     });
-    app.put("/users/:id", async (req, res) => {
+    app.put("/users/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       const subscription = req.body.subscription;
       const lowercaseSubscription = subscription.toLowerCase();
@@ -130,6 +129,29 @@ async function run() {
     // meals related api
     app.get("/meals", async (req, res) => {
       const result = await mealsCollection.find().toArray();
+      res.send(result);
+    });
+    app.get("/meals/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await mealsCollection.findOne(query);
+      res.send(result);
+    });
+    app.patch("/menu/:id", async (req, res) => {
+      const item = req.body;
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const updatedDoc = {
+        $set: {
+          title: item.title,
+          category: item.category,
+          price: item.price,
+          ingredients: item.ingredients,
+          image: item.image,
+        },
+      };
+
+      const result = await mealsCollection.updateOne(filter, updatedDoc);
       res.send(result);
     });
     app.post("/meals", verifyToken, verifyAdmin, async (req, res) => {
@@ -168,6 +190,12 @@ async function run() {
     });
     app.get("/reviews", async (req, res) => {
       const result = await reviewsCollection.find().toArray();
+      res.send(result);
+    });
+    app.delete("/reviews/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await reviewsCollection.deleteOne(query);
       res.send(result);
     });
     app.get("/reviews/:menuId", async (req, res) => {
@@ -213,7 +241,28 @@ async function run() {
       const result = await cartsCollection.find(query).toArray();
       res.send(result);
     });
+    app.get("/carts/allCarts", async (req, res) => {
+      const result = await cartsCollection.find().toArray();
+      res.send(result);
+    });
+    app.put("/carts/requestedMeals/serve/:id", async (req, res) => {
+      const mealId = req.params.id; // Retrieve the meal ID from the request params
+      const { mealStatus } = req.body; // Assuming you're sending 'mealStatus' in the request body
 
+      // Update the meal in the cartCollection by ID
+      const result = await cartsCollection.updateOne(
+        { _id: new ObjectId(mealId) }, // Assuming mealId is the correct MongoDB ObjectId
+        { $set: { mealStatus: mealStatus } } // Update the mealStatus field
+      );
+
+      if (result.modifiedCount === 0) {
+        return res
+          .status(404)
+          .json({ message: "Meal not found or not modified" });
+      }
+
+      res.send(result);
+    });
     // membership related api
     app.get("/membership", async (req, res) => {
       const result = await membershipCollection.find().toArray();
@@ -231,6 +280,55 @@ async function run() {
       const result = await cartsCollection.deleteOne(query);
       res.send(result);
     });
+    //stripe
+
+    app.post("/create-payment-intent", async (req, res) => {
+      const { price } = req.body;
+      const amount = parseInt(price * 100);
+      console.log(amount);
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amount,
+        currency: "usd",
+        payment_method_types: ["card"],
+      });
+
+      res.send({
+        clientSecret: paymentIntent.client_secret,
+      });
+    });
+
+    app.post("/payments", async (req, res) => {
+      const payment = req.body;
+      const paymentResult = await paymentCollection.insertOne(payment);
+
+      const query = {
+        _id: {
+          $in: payment.cartIds.map((id) => new ObjectId(id)),
+        },
+      };
+
+      const deleteResult = await cartCollection.deleteMany(query);
+
+      res.send({ paymentResult, deleteResult });
+    });
+
+    app.get("/payments", async (req, res) => {
+      const userEmail = req.query.email;
+
+      if (!userEmail) {
+        return res.status(400).json({ error: "Email parameter is missing" });
+      }
+
+      const query = { email: userEmail };
+
+      try {
+        const result = await paymentCollection.find(query).toArray();
+        res.send(result);
+      } catch (error) {
+        res.status(500).json({ error: "Internal server error" });
+      }
+    });
+
     // TODO: make payments things in last
 
     // Send a ping to confirm a successful connection
