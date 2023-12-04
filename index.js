@@ -2,22 +2,14 @@ require("dotenv").config();
 const express = require("express");
 const jwt = require("jsonwebtoken");
 const cors = require("cors");
-const cookieParser = require("cookie-parser");
 const app = express();
 const port = process.env.PORT || 5000;
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.frd0xwu.mongodb.net/?retryWrites=true&w=majority`;
 
-console.log(uri);
 // middleware
-app.use(
-  cors({
-    origin: ["http://localhost:5173"],
-    credentials: true,
-  })
-);
+app.use(cors());
 app.use(express.json());
-app.use(cookieParser());
 
 const client = new MongoClient(uri, {
   serverApi: {
@@ -27,23 +19,8 @@ const client = new MongoClient(uri, {
   },
 });
 
-// middleware
 
-const verifyToken = (req, res, next) => {
-  const token = req.cookies?.token;
-  // console.log({ token });
-  //no token available
-  if (!token) {
-    return res.status(401).send({ message: "Unauthorized access" });
-  }
-  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
-    if (err) {
-      return res.status(401).send({ message: "unauthorized access" });
-    }
-    req.user = decoded;
-    next();
-  });
-};
+
 async function run() {
   try {
     // collections
@@ -55,35 +32,62 @@ async function run() {
     const membershipCollection = client
       .db("DormDineDB")
       .collection("membership");
+    // middlewares
+    const verifyToken = (req, res, next) => {
+      // console.log("inside verify token", req.headers.authorization);
+      if (!req.headers.authorization) {
+        return res.status(401).send({ message: "unauthorized access" });
+      }
+      const token = req.headers.authorization.split(" ")[1];
+      jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+        if (err) {
+          return res.status(401).send({ message: "unauthorized access" });
+        }
+        req.decoded = decoded;
+        next();
+      });
+    };
 
-    // auth related api
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded.email;
+      const query = { email: email };
+      const user = await userCollection.findOne(query);
+      const isAdmin = user?.role === "admin";
+      if (!isAdmin) {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      next();
+    };
+
     app.post("/jwt", async (req, res) => {
       const user = req.body;
-      console.log("user for token", user);
       const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {
         expiresIn: "1h",
       });
-
-      res
-        .cookie("token", token, {
-          httpOnly: false,
-          secure: true,
-          sameSite: "none",
-        })
-        .send({ success: true });
-    });
-
-    app.post("/logout", async (req, res) => {
-      const user = req.body;
-      console.log("logging out", user);
-      res.clearCookie("token", { maxAge: 0 }).send({ success: true });
+      res.send({ token });
     });
 
     // user related api
-    app.get("/users", verifyToken, async (req, res) => {
+    app.get("/users", verifyToken, verifyAdmin, async (req, res) => {
       const result = await userCollection.find().toArray();
       res.send(result);
     });
+    app.get("/user/admin/:email", verifyToken, async (req, res) => {
+      const email = req.params.email;
+
+      if (email !== req.decoded?.email) {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+
+      const query = { email: email };
+      const user = await userCollection.findOne(query);
+      let admin = false;
+      if (user) {
+        admin = user?.role === "admin";
+      }
+      res.send({ admin });
+    });
+
     app.post("/users", async (req, res) => {
       const user = req.body;
       const query = { email: user.email };
@@ -109,9 +113,28 @@ async function run() {
       const result = await userCollection.updateOne(filter, updateDoc, options);
       res.send(result);
     });
+
+    // make admin
+    app.patch("/users/admin/:id", verifyToken, async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const updatedDoc = {
+        $set: {
+          role: "admin",
+        },
+      };
+      const result = await userCollection.updateOne(filter, updatedDoc);
+      res.send(result);
+    });
+
     // meals related api
     app.get("/meals", async (req, res) => {
       const result = await mealsCollection.find().toArray();
+      res.send(result);
+    });
+    app.post("/meals", verifyToken, verifyAdmin, async (req, res) => {
+      const newMeal = req.body;
+      const result = await mealsCollection.insertOne(newMeal);
       res.send(result);
     });
     app.put("/like/:id", async (req, res) => {
@@ -128,7 +151,7 @@ async function run() {
     });
     app.put("/menu/reviews/:id", async (req, res) => {
       const id = req.params.id;
-      const updatedReview = req.body.reviews;
+      const updatedReview = req.body.review;
       const filter = { _id: new ObjectId(id) };
       const options = { upsert: true };
       const updateDoc = {
@@ -163,11 +186,49 @@ async function run() {
       const result = await mealsCollection.findOne(query);
       res.send(result);
     });
+
+    app.put("/reviews/:id", async (req, res) => {
+      const id = req.params.id;
+      const updatedReview = req.body.details;
+      const filter = { _id: new ObjectId(id) };
+
+      console.log(updatedReview);
+      const options = { upsert: true };
+      const updateDoc = {
+        $set: {
+          details: updatedReview,
+        },
+      };
+      const result = await reviewsCollection.updateOne(
+        filter,
+        updateDoc,
+        options
+      );
+      res.send(result);
+    });
     // Request related meal  api
-  
+    app.get("/carts", async (req, res) => {
+      const email = req.query.email;
+      const query = { email: email };
+      const result = await cartsCollection.find(query).toArray();
+      res.send(result);
+    });
+
     // membership related api
     app.get("/membership", async (req, res) => {
       const result = await membershipCollection.find().toArray();
+      res.send(result);
+    });
+    app.post("/carts", async (req, res) => {
+      const cartItem = req.body;
+      const result = await cartsCollection.insertOne(cartItem);
+      res.send(result);
+    });
+
+    app.delete("/carts/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await cartsCollection.deleteOne(query);
       res.send(result);
     });
     // TODO: make payments things in last
